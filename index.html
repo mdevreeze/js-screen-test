@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JS & Screen Test</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#101116;color:#f3f4f6}*{box-sizing:border-box}body{margin:0}main{max-width:760px;margin:0 auto;padding:48px 20px}h1{margin:0 0 8px}p{color:#aeb5c3;line-height:1.5}.card{background:#1b1d26;border:1px solid #343746;border-radius:14px;padding:24px;margin-top:20px}h2{margin-top:0;font-size:1.2rem}label{display:block;margin:16px 0 7px;color:#cbd1dc}select,input,button{font:inherit;border-radius:8px;border:1px solid #4b5061;background:#252938;color:inherit;padding:10px}button{cursor:pointer;background:#5965e8;border-color:#5965e8;font-weight:600}button.secondary{background:#303544;border-color:#4b5061}button:disabled{opacity:.45;cursor:not-allowed}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.row label{margin:0}input[type=number]{width:95px}input[type=color]{width:64px;height:44px;padding:3px}output{display:block;margin-top:18px;min-height:3em;line-height:1.6;font-variant-numeric:tabular-nums}small{color:#aeb5c3}#screen{position:fixed;inset:0;z-index:10;background:#000;display:none;cursor:pointer}#screen.active{display:block}#screen span{position:absolute;bottom:16px;right:16px;color:white;background:#0009;padding:8px 12px;border-radius:6px;font-size:13px}#screen.hide-hint span{opacity:0;transition:opacity 1s}
+</style>
+</head>
+<body>
+<main>
+<h1>JS & Screen Test</h1><p>A simple browser performance and display test. Everything runs locally.</p>
+<section class="card"><h2>JavaScript benchmark</h2><p>Runs a repeatable mix of arithmetic and bitwise operations in a background worker. Scores are useful for comparing runs on the same browser and device, not as a universal performance rating.</p>
+<label for="duration">Run duration</label><div class="row"><select id="duration"><option value="5">5 seconds</option><option value="10" selected>10 seconds</option><option value="30">30 seconds</option><option value="forever">Until stopped</option></select><button id="start">Start benchmark</button><button id="stop" class="secondary" disabled>Stop</button></div><output id="result" aria-live="polite">Ready.</output><small>Background tabs, power saving, and other workloads can affect results.</small></section>
+<section class="card"><h2>Full-screen color</h2><p>Fill the display with a solid color. Press Escape or click the screen to exit.</p><div class="row"><label for="color">Color</label><input id="color" type="color" value="#000000"><button id="show">Show full screen</button></div></section>
+</main><div id="screen" role="button" tabindex="0" aria-label="Exit color screen"><span>Click or press Escape to exit</span></div>
+<script>
+const $ = id => document.getElementById(id);
+let worker, hintTimer;
+const workerCode = `let running = false;
+onmessage = e => {
+ if (e.data.type === 'start') {
+  running = true;
+  const start = performance.now(), duration = e.data.duration;
+  let iterations = 0, x = 123456789, lastReport = start;
+  function batch() {
+   const until = performance.now() + 100;
+   while (performance.now() < until) {
+    for (let i = 0; i < 10000; i++) { x = Math.imul(x ^ (x >>> 13), 1664525) + 1013904223 | 0; }
+    iterations += 10000;
+   }
+   const now = performance.now(), elapsed = (now - start) / 1000;
+   if (now - lastReport >= 500 || (duration && elapsed >= duration)) {
+    postMessage({ elapsed, iterations, checksum: x, done: !!duration && elapsed >= duration }); lastReport = now;
+   }
+   if (running && (!duration || elapsed < duration)) setTimeout(batch, 0);
+  }
+  batch();
+ }
+};`;
+function stopWorker(){ if(worker){worker.terminate();worker=null;} $('start').disabled=false;$('stop').disabled=true; }
+$('start').onclick=()=>{
+ stopWorker();
+ const url=URL.createObjectURL(new Blob([workerCode],{type:'text/javascript'}));
+ try { worker=new Worker(url); } catch(e) { $('result').textContent='Could not start worker: '+e.message; return; } finally { URL.revokeObjectURL(url); }
+ $('start').disabled=true;$('stop').disabled=false;$('result').textContent='Running…';
+ worker.onmessage=({data:d})=>{ $('result').textContent=`${d.done?'Finished':'Running'}: ${d.elapsed.toFixed(1)} s · ${d.iterations.toLocaleString()} iterations · ${(d.iterations / d.elapsed / 1e6).toFixed(2)} million iterations/s`; if(d.done) stopWorker(); };
+ worker.onerror=e=>{ $('result').textContent='Benchmark error: '+e.message;stopWorker(); };
+ worker.postMessage({type:'start',duration:$('duration').value==='forever'?0:Number($('duration').value)});
+};
+$('stop').onclick=()=>{ stopWorker(); $('result').textContent=$('result').textContent.replace(/^Running/, 'Stopped'); };
+function closeScreen(){clearTimeout(hintTimer);$('screen').classList.remove('active','hide-hint');if(document.fullscreenElement=== $('screen')) document.exitFullscreen().catch(()=>{});$('show').focus();}
+$('show').onclick=async()=>{const screen=$('screen');screen.style.background=$('color').value;screen.classList.add('active');screen.focus();hintTimer=setTimeout(()=>screen.classList.add('hide-hint'),2500);if(screen.requestFullscreen) try{await screen.requestFullscreen();}catch(e){/* viewport fallback */}};
+$('screen').onclick=closeScreen;
+$('screen').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();closeScreen();}};
+document.addEventListener('keydown',e=>{if(e.key==='Escape' && $('screen').classList.contains('active')) closeScreen();});
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement && $('screen').classList.contains('active')) closeScreen();});
+</script>
+</body>
+</html>
